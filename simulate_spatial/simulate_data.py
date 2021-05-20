@@ -21,6 +21,38 @@ def simulate_pairwise_from_dataset(
     ):
     """
     Simulate pairwise expression with spatially varying correlation.
+
+    Parameters
+    ----------
+    adata
+        The AnnData object storing the spatial expression data.
+    z_mean
+        The mean correlation across the slide.
+    gene_1
+        The name of a gene on which to base the simulated expression
+        values for the first gene. The simulated data's first gene will
+        have the same mean and variance as this gene.
+    gene_2
+        The name of a gene on which to base the simulated expression
+        values for the second gene. The simulated data's second gene will
+        have the same mean and variance as this gene.
+    row_key
+        The name of the column in `adata.obs` that stores the row
+        coordinates of each spot.
+    col_key
+        The name of the column in `adata.obs` that stores the column 
+        coordinates of each spot.
+    sigma
+        The size of the Radial Basis Function's kernel bandwidth that
+        is used to generate patterns of spatially varying correlation.
+    cov_strength
+        This parameter sets the strength of correlation. Higher values
+        lead to larger magnitudes for the correlation of each gene.
+    poisson
+        If True, sample counts instead of normally distributed values.
+    size_factors
+        A list containing the total UMI count for each spot. If `poisson` 
+        is set to true, then this argument must be provided.
     """
     coords = np.array(adata.obs[[
         row_key,
@@ -61,8 +93,8 @@ def simulate_pairwise_from_dataset(
         coords,
         sigma=sigma,
         cov_strength=cov_strength,
-        poisson=False,
-        size_factors=None
+        poisson=poisson,
+        size_factors=size_factors
     )
     adata_sim = AnnData(
         X=sample.T,
