@@ -3,8 +3,10 @@ from sklearn.metrics.pairwise import euclidean_distances
 import importlib as mpl
 from matplotlib import pyplot as plt
 import seaborn as sns
+import scanpy as sc
 from anndata import AnnData
 
+from . import poisson_lognormal
 import warnings
 
 def simulate_pairwise_from_dataset(
@@ -54,6 +56,28 @@ def simulate_pairwise_from_dataset(
         A list containing the total UMI count for each spot. If `poisson` 
         is set to true, then this argument must be provided.
     """
+
+    if poisson:
+        adata = adata.copy()
+        means_1, vars_1 = poisson_lognormal.fit(
+            adata.obs_vector(gene_1),
+            size_factors.T[0]
+        )
+        mean_g1 = np.mean(means_1.squeeze())
+        var_g1 = np.mean(vars_1.squeeze())**2
+
+        means_2, vars_2 = poisson_lognormal.fit(
+            adata.obs_vector(gene_2),
+            size_factors.T[1]
+        )
+        mean_g2 = np.mean(means_2.squeeze())
+        var_g2 = np.mean(vars_2.squeeze())**2
+    else:
+        mean_g1 = np.mean(adata.obs_vector(gene_1)) 
+        mean_g2 = np.mean(adata.obs_vector(gene_2))
+        var_g1 = np.var(adata.obs_vector(gene_1))
+        var_g2 = np.var(adata.obs_vector(gene_2))
+
     coords = np.array(adata.obs[[
         row_key,
         col_key
@@ -61,12 +85,6 @@ def simulate_pairwise_from_dataset(
 
     z_means = np.full(adata.shape[0], z_mean)
 
-
-    mean_g1 = np.mean(adata.obs_vector(gene_1)) 
-    mean_g2 = np.mean(adata.obs_vector(gene_2))
-    var_g1 = np.var(adata.obs_vector(gene_1))
-    var_g2 = np.var(adata.obs_vector(gene_2))
-    
     means_g1 = np.full(
         adata.shape[0],
         mean_g1
@@ -161,9 +179,19 @@ def simulate_expression_guassian_cov(
         # Sample
         lamb_s = np.random.multivariate_normal(spot_means, cov_mat)
         if poisson:
+            total_count = np.sum(size_factors)
+            #print("HERE!!!!!!!!!!!!")
             #poiss_mean = np.exp(lamb_s) + np.log(size_factors[s_i])
-            poiss_mean = np.exp(lamb_s) * size_factors[s_i]
+            #print("Sampled lamb_s:")
+            #print(np.exp(lamb_s))
+            #print("Size factor:")
+            #print(size_factors[s_i])
+            poiss_mean = np.exp(lamb_s) * size_factors[s_i] #(size_factors[s_i] / 1e6) #* (total_count / 1e6)
+            #print("Poison mean:")
+            #print(poiss_mean)
             x_s = np.random.poisson(poiss_mean)
+            #print("Sample:")
+            #print(x_s)
         else:
             x_s = lamb_s
         sample.append(x_s)
@@ -406,34 +434,43 @@ def simulate_expression_guassian_no_spatial(
     return corrs, sample
 
 
-def plot_simulated_data(df, expr_1, expr_2, corrs, covs, dot_size=30):
+def plot_simulated_data(
+        df, 
+        expr_1, 
+        expr_2, 
+        corrs, 
+        covs, 
+        row_key='row', 
+        col_key='col', 
+        dot_size=30
+    ):
     figure, axarr = plt.subplots(
         2,
         2,
         figsize = (10,10)
     )
 
-    y = -1 * np.array(df['row'])
-    x = df['col']
+    y = -1 * np.array(df[row_key])
+    x = df[col_key]
     color = expr_1
     axarr[0][0].scatter(x,y,c=color, cmap='viridis', s=dot_size)
     axarr[0][0].set_title('Gene 1 Expression')
 
-    y = -1 * np.array(df['row'])
-    x = df['col']
+    y = -1 * np.array(df[row_key])
+    x = df[col_key]
     color = expr_2
     axarr[0][1].scatter(x,y,c=color, cmap='viridis', s=dot_size)
     axarr[0][1].set_title('Gene 2 Expression')
 
-    y = -1 * np.array(df['row'])
-    x = df['col']
+    y = -1 * np.array(df[row_key])
+    x = df[col_key]
     color = np.abs(corrs)
     im = axarr[1][0].scatter(x,y,c=color, cmap='viridis', s=dot_size, vmin=0, vmax=1)
     figure.colorbar(im, ax=axarr[1][0])
     axarr[1][0].set_title('Absolute value of correlation')
 
-    y = -1 * np.array(df['row'])
-    x = df['col']
+    y = -1 * np.array(df[row_key])
+    x = df[col_key]
     color = corrs
     im = axarr[1][1].scatter(x,y,c=color, cmap='RdBu_r', s=dot_size, vmin=-1, vmax=1)
     figure.colorbar(im, ax=axarr[1][1])
