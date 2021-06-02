@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 import scanpy as sc
 from anndata import AnnData
+from collections import defaultdict
 
 from . import poisson_lognormal
 import warnings
@@ -19,7 +20,11 @@ def simulate_pairwise_from_dataset(
         sigma=10,
         cov_strength=5,
         poisson=False,
-        size_factors=None
+        size_factors=None,
+        mean_g1=None,
+        mean_g2=None,
+        var_g1=None,
+        var_g2=None
     ):
     """
     Simulate pairwise expression with spatially varying correlation.
@@ -56,27 +61,32 @@ def simulate_pairwise_from_dataset(
         A list containing the total UMI count for each spot. If `poisson` 
         is set to true, then this argument must be provided.
     """
-
     if poisson:
         adata = adata.copy()
-        means_1, vars_1 = poisson_lognormal.fit(
-            adata.obs_vector(gene_1),
-            size_factors.T[0]
-        )
-        mean_g1 = np.mean(means_1.squeeze())
-        var_g1 = np.mean(vars_1.squeeze())**2
 
-        means_2, vars_2 = poisson_lognormal.fit(
-            adata.obs_vector(gene_2),
-            size_factors.T[1]
-        )
-        mean_g2 = np.mean(means_2.squeeze())
-        var_g2 = np.mean(vars_2.squeeze())**2
-    else:
-        mean_g1 = np.mean(adata.obs_vector(gene_1)) 
-        mean_g2 = np.mean(adata.obs_vector(gene_2))
-        var_g1 = np.var(adata.obs_vector(gene_1))
-        var_g2 = np.var(adata.obs_vector(gene_2))
+    # Estimate means and variances from real data for the multivariate
+    # normal distribution
+    if mean_g1 is None or mean_g2 is None or var_g1 is None \
+        or var_g2 is None:
+        if poisson:
+            means_1, vars_1 = poisson_lognormal.fit(
+                adata.obs_vector(gene_1),
+                size_factors.T[0]
+            )
+            mean_g1 = np.mean(means_1.squeeze())
+            var_g1 = np.mean(vars_1.squeeze())**2
+
+            means_2, vars_2 = poisson_lognormal.fit(
+                adata.obs_vector(gene_2),
+                size_factors.T[1]
+            )
+            mean_g2 = np.mean(means_2.squeeze())
+            var_g2 = np.mean(vars_2.squeeze())**2
+        else:
+            mean_g1 = np.mean(adata.obs_vector(gene_1)) 
+            mean_g2 = np.mean(adata.obs_vector(gene_2))
+            var_g1 = np.var(adata.obs_vector(gene_1))
+            var_g2 = np.var(adata.obs_vector(gene_2))
 
     coords = np.array(adata.obs[[
         row_key,
@@ -84,7 +94,6 @@ def simulate_pairwise_from_dataset(
     ]])
 
     z_means = np.full(adata.shape[0], z_mean)
-
     means_g1 = np.full(
         adata.shape[0],
         mean_g1
@@ -121,6 +130,134 @@ def simulate_pairwise_from_dataset(
     return corrs, covs, adata_sim
 
 
+def simulate_pairwise_condition_covariate_from_dataset(
+        adata,
+        clust_to_z_mean,
+        clust_to_gene_stat_1,
+        clust_to_gene_stat_2,
+        clust_to_sigma,
+        clust_to_cov_strength,
+        clust_key,
+        row_key='array_row',
+        col_key='array_col',
+        poisson=False,
+        size_factors=None
+    ):
+    """
+    Simulate pairwise expression with spatially varying correlation.
+
+    Parameters
+    ----------
+    adata
+        The AnnData object storing the spatial expression data.
+    clust_to_z_mean
+        The mean correlation across the slide.
+    gene_1
+        The name of a gene on which to base the simulated expression
+        values for the first gene. The simulated data's first gene will
+        have the same mean and variance as this gene.
+    gene_2
+        The name of a gene on which to base the simulated expression
+        values for the second gene. The simulated data's second gene will
+        have the same mean and variance as this gene.
+    row_key
+        The name of the column in `adata.obs` that stores the row
+        coordinates of each spot.
+    col_key
+        The name of the column in `adata.obs` that stores the column
+        coordinates of each spot.
+    clust_to_sigma : dictionary
+        Map each cluster to the size of the radial Basis Function's kernel 
+        bandwidth that is used to generate patterns of spatially varying 
+        correlation within spots of that cluster.
+    clust_to_cov_strength : dictionary
+        Map each cluster to the size of the the strength of correlation. 
+        Higher values lead to larger magnitudes for the correlation of 
+        each gene
+    clust_key
+        The name of the column in `adata.obs` that stores the cluster
+        ID of each spot.
+    poisson
+        If True, sample counts instead of normally distributed values.
+    size_factors
+        A list containing the total UMI count for each spot. If `poisson`
+        is set to True, then this argument must be provided.
+    """
+    if poisson:
+        adata = adata.copy()
+    
+    if poisson:
+        gene_to_mean = {}
+        gene_to_var = {}
+        all_genes = set(clust_to_gene_stat_1.values()) | set(clust_to_gene_stat_2.values())
+        for gene in all_genes:
+            means, varss = poisson_lognormal.fit(
+                adata.obs_vector(gene),
+                size_factors.T[0]
+            )
+            mean = np.mean(means.squeeze())
+            varr = np.mean(varss.squeeze())**2
+            gene_to_mean[gene] = mean
+            gene_to_var[gene] = varr
+    else:
+        for gene in all_genes:
+            gene_to_mean[gene] = np.mean(adata.obs_vector(gene))
+            gene_to_var[gene] = np.var(adata.obs_vector(gene))
+
+    coords = np.array(adata.obs[[
+        row_key,
+        col_key
+    ]])
+
+    z_means = np.array([
+        clust_to_z_mean[clust]
+        for clust in adata.obs[clust_key]
+    ])
+    means_g1 = np.array([
+        gene_to_mean[clust_to_gene_stat_1[clust]]
+        for clust in adata.obs[clust_key]
+    ])
+    print(means_g1)
+    print(set(means_g1))
+    means_g2 = np.array([
+        gene_to_mean[clust_to_gene_stat_2[clust]]
+        for clust in adata.obs[clust_key]
+    ])
+    vars_g1 = np.array([
+        gene_to_var[clust_to_gene_stat_1[clust]]
+        for clust in adata.obs[clust_key]
+    ])
+    vars_g2 = np.array([
+        gene_to_var[clust_to_gene_stat_2[clust]]
+        for clust in adata.obs[clust_key]
+    ])
+
+    # Map each cluster to the indices of spots belonging to that
+    # cluster
+    clust_to_indices = defaultdict(lambda: [])
+    for ind, clust in enumerate(adata.obs[clust_key]):
+        clust_to_indices[clust].append(ind)
+
+    corrs, covs, sample = simulate_expression_guassian_cov_condition(
+        z_means,
+        means_g1,
+        means_g2,
+        vars_g1,
+        vars_g2,
+        coords,
+        clust_to_indices,
+        clust_to_sigma,
+        clust_to_cov_strength,
+        poisson=poisson,
+        size_factors=size_factors
+    )
+    adata_sim = AnnData(
+        X=sample.T,
+        obs=adata.obs
+    )
+    return corrs, covs, adata_sim
+
+
 def simulate_expression_guassian_cov(
         z_means, 
         x_means_g1, 
@@ -147,7 +284,7 @@ def simulate_expression_guassian_cov(
 
     # Sample the Fisher-transformed correlations
     z_corrs = np.random.multivariate_normal(z_means, z_cov)
-    
+   
     # Transform to correlation via inverse of arctanh
     corrs = np.tanh(z_corrs)
 
@@ -174,24 +311,11 @@ def simulate_expression_guassian_cov(
             [cov_g12, x_vars_g2[s_i]]
         ])
 
-        #print(cov_mat)
-
         # Sample
         lamb_s = np.random.multivariate_normal(spot_means, cov_mat)
         if poisson:
-            total_count = np.sum(size_factors)
-            #print("HERE!!!!!!!!!!!!")
-            #poiss_mean = np.exp(lamb_s) + np.log(size_factors[s_i])
-            #print("Sampled lamb_s:")
-            #print(np.exp(lamb_s))
-            #print("Size factor:")
-            #print(size_factors[s_i])
-            poiss_mean = np.exp(lamb_s) * size_factors[s_i] #(size_factors[s_i] / 1e6) #* (total_count / 1e6)
-            #print("Poison mean:")
-            #print(poiss_mean)
+            poiss_mean = np.exp(lamb_s) * size_factors[s_i]
             x_s = np.random.poisson(poiss_mean)
-            #print("Sample:")
-            #print(x_s)
         else:
             x_s = lamb_s
         sample.append(x_s)
@@ -363,11 +487,9 @@ def simulate_expression_guassian_cov_condition(
 
         # Sample
         lamb_s = np.random.multivariate_normal(spot_means, cov_mat)
-
         if poisson:
-            x_s = np.random.poisson(
-                np.exp(lamb_s + np.log(size_factors[s_i]))
-            )
+            poiss_mean = np.exp(lamb_s) * size_factors[s_i]
+            x_s = np.random.poisson(poiss_mean)
         else:
             # Let the expression simply be the draw
             # from the distribution
