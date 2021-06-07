@@ -141,7 +141,9 @@ def simulate_pairwise_condition_covariate_from_dataset(
         row_key='array_row',
         col_key='array_col',
         poisson=False,
-        size_factors=None
+        size_factors=None,
+        gene_to_mean=None,
+        gene_to_var=None
     ):
     """
     Simulate pairwise expression with spatially varying correlation.
@@ -186,23 +188,27 @@ def simulate_pairwise_condition_covariate_from_dataset(
     if poisson:
         adata = adata.copy()
     
-    if poisson:
+    all_genes = set(clust_to_gene_stat_1.values()) | set(clust_to_gene_stat_2.values())
+    if gene_to_mean is None or gene_to_var is None:
         gene_to_mean = {}
         gene_to_var = {}
-        all_genes = set(clust_to_gene_stat_1.values()) | set(clust_to_gene_stat_2.values())
-        for gene in all_genes:
-            means, varss = poisson_lognormal.fit(
-                adata.obs_vector(gene),
-                size_factors.T[0]
-            )
-            mean = np.mean(means.squeeze())
-            varr = np.mean(varss.squeeze())**2
-            gene_to_mean[gene] = mean
-            gene_to_var[gene] = varr
+        if poisson:
+            for gene in all_genes:
+                means, varss = poisson_lognormal.fit(
+                    adata.obs_vector(gene),
+                    size_factors.T[0]
+                )
+                mean = np.mean(means.squeeze())
+                varr = np.mean(varss.squeeze())**2
+                gene_to_mean[gene] = mean
+                gene_to_var[gene] = varr
+        else:
+            for gene in all_genes:
+                gene_to_mean[gene] = np.mean(adata.obs_vector(gene))
+                gene_to_var[gene] = np.var(adata.obs_vector(gene))
     else:
-        for gene in all_genes:
-            gene_to_mean[gene] = np.mean(adata.obs_vector(gene))
-            gene_to_var[gene] = np.var(adata.obs_vector(gene))
+        assert frozenset(gene_to_mean.keys()) == frozenset(all_genes)
+        assert frozenset(gene_to_var.keys()) == frozenset(all_genes)
 
     coords = np.array(adata.obs[[
         row_key,
@@ -250,6 +256,120 @@ def simulate_pairwise_condition_covariate_from_dataset(
         clust_to_cov_strength,
         poisson=poisson,
         size_factors=size_factors
+    )
+    adata_sim = AnnData(
+        X=sample.T,
+        obs=adata.obs
+    )
+    return corrs, covs, adata_sim
+
+
+def simulate_pairwise_between_groups_from_dataset(
+        adata,
+        clust_to_corr,
+        clust_to_gene_stat_1,
+        clust_to_gene_stat_2,
+        clust_key,
+        row_key='array_row',
+        col_key='array_col',
+        poisson=False,
+        size_factors=None,
+        gene_to_mean=None,
+        gene_to_var=None
+    ):
+    """
+    Simulate pairwise expression with spatially varying correlation.
+
+    Parameters
+    ----------
+    adata
+        The AnnData object storing the spatial expression data.
+    clust_to_corr
+        Map each cluster to the correlation between the two genes
+        within that cluster.
+    gene_1
+        The name of a gene on which to base the simulated expression
+        values for the first gene. The simulated data's first gene will
+        have the same mean and variance as this gene.
+    gene_2
+        The name of a gene on which to base the simulated expression
+        values for the second gene. The simulated data's second gene will
+        have the same mean and variance as this gene.
+    row_key
+        The name of the column in `adata.obs` that stores the row
+        coordinates of each spot.
+    col_key
+        The name of the column in `adata.obs` that stores the column
+        coordinates of each spot.
+    clust_key
+        The name of the column in `adata.obs` that stores the cluster
+        ID of each spot.
+    poisson
+        If True, sample counts instead of normally distributed values.
+    size_factors
+        A list containing the total UMI count for each spot. If `poisson`
+        is set to True, then this argument must be provided.
+    """
+    if poisson:
+        adata = adata.copy()
+
+    all_genes = set(clust_to_gene_stat_1.values()) | set(clust_to_gene_stat_2.values())
+    if gene_to_mean is None or gene_to_var is None:
+        gene_to_mean = {}
+        gene_to_var = {}
+        if poisson:
+            for gene in all_genes:
+                means, varss = poisson_lognormal.fit(
+                    adata.obs_vector(gene),
+                    size_factors.T[0]
+                )
+                mean = np.mean(means.squeeze())
+                varr = np.mean(varss.squeeze())**2
+                gene_to_mean[gene] = mean
+                gene_to_var[gene] = varr
+        else:
+            for gene in all_genes:
+                gene_to_mean[gene] = np.mean(adata.obs_vector(gene))
+                gene_to_var[gene] = np.var(adata.obs_vector(gene))
+    else:
+        assert frozenset(gene_to_mean.keys()) == frozenset(all_genes)
+        assert frozenset(gene_to_var.keys()) == frozenset(all_genes)
+
+    coords = np.array(adata.obs[[
+        row_key,
+        col_key
+    ]])
+
+    means_g1 = np.array([
+        gene_to_mean[clust_to_gene_stat_1[clust]]
+        for clust in adata.obs[clust_key]
+    ])
+    means_g2 = np.array([
+        gene_to_mean[clust_to_gene_stat_2[clust]]
+        for clust in adata.obs[clust_key]
+    ])
+    vars_g1 = np.array([
+        gene_to_var[clust_to_gene_stat_1[clust]]
+        for clust in adata.obs[clust_key]
+    ])
+    vars_g2 = np.array([
+        gene_to_var[clust_to_gene_stat_2[clust]]
+        for clust in adata.obs[clust_key]
+    ])
+    corrs = np.array([
+        clust_to_corr[clust]
+        for clust in adata.obs[clust_key]
+    ])
+
+    covs, sample = simulate_expression_guassian_no_spatial(
+        means_g1,
+        means_g2,
+        vars_g1,
+        vars_g2,
+        corrs,
+        coords,
+        poisson=False,
+        size_factors=None
     )
     adata_sim = AnnData(
         X=sample.T,
@@ -322,9 +442,6 @@ def simulate_expression_guassian_cov(
     sample = np.array(sample).T
     covs = np.array(covs)
     return corrs, covs, sample
-
-
-
 
 
 
@@ -501,16 +618,13 @@ def simulate_expression_guassian_cov_condition(
     return corrs, covs, sample
 
 
-
-
-
-
 def simulate_expression_guassian_no_spatial(
         x_means_g1,
         x_means_g2,
         x_vars_g1,
         x_vars_g2,
-        x_covs,
+        #x_covs,
+        x_corrs,
         coords,
         poisson=False,
         size_factors=None
@@ -527,6 +641,9 @@ def simulate_expression_guassian_no_spatial(
     # genes
     sample = []
     covs = [] # The true pairwise covariance at each spot
+
+    x_covs = x_corrs * np.sqrt(x_vars_g1 * x_vars_g2)
+
     for s_i in range(len(coords)):
         # Means at each spot
         spot_means = np.array([
@@ -541,19 +658,19 @@ def simulate_expression_guassian_no_spatial(
 
         #print(cov_mat)
 
-        corrs = x_covs / np.sqrt(x_vars_g1 * x_vars_g2)
+        #corrs = x_covs / np.sqrt(x_vars_g1 * x_vars_g2)
 
         # Sample
         lamb_s = np.random.multivariate_normal(spot_means, cov_mat)
         if poisson:
-            x_s = np.random.poisson(
-                np.exp(lamb_s + np.log(size_factors[s_i]))
-            )
+            poiss_mean = np.exp(lamb_s) * size_factors[s_i]
+            x_s = np.random.poisson(poiss_mean)
         else:
             x_s = lamb_s
         sample.append(x_s)
     sample = np.array(sample).T
-    return corrs, sample
+    #return x_corrs, sample
+    return x_covs, sample
 
 
 def plot_simulated_data(
