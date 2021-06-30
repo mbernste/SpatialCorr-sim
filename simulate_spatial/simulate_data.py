@@ -8,7 +8,6 @@ from anndata import AnnData
 from collections import defaultdict
 
 from . import poisson_lognormal
-import warnings
 
 def simulate_pairwise_from_dataset(
         adata,
@@ -368,14 +367,90 @@ def simulate_pairwise_between_groups_from_dataset(
         vars_g2,
         corrs,
         coords,
-        poisson=False,
-        size_factors=None
+        poisson=poisson,
+        size_factors=size_factors
     )
     adata_sim = AnnData(
         X=sample.T,
         obs=adata.obs
     )
     return corrs, covs, adata_sim
+
+
+
+def simulate_gene_set_from_dataset(
+        adata,
+        genes,
+        row_key='array_row',
+        col_key='array_col',
+        sigma=10,
+        cov_strength=5,
+        poisson=False,
+        size_factors=None,
+        gene_to_mean=None,
+        gene_to_var=None
+    ):
+    if poisson:
+        adata = adata.copy()
+
+    if gene_to_mean is None or gene_to_var is None:
+        gene_to_mean = {}
+        gene_to_var = {}
+        if poisson:
+            for gene in genes:
+                means, varss = poisson_lognormal.fit(
+                    adata.obs_vector(gene),
+                    size_factors.T[0]
+                )
+                mean = np.mean(means.squeeze())
+                varr = np.mean(varss.squeeze())**2
+                gene_to_mean[gene] = mean
+                gene_to_var[gene] = varr
+        else:
+            for gene in all_genes:
+                gene_to_mean[gene] = np.mean(adata.obs_vector(gene))
+                gene_to_var[gene] = np.var(adata.obs_vector(gene))
+    else:
+        assert frozenset(gene_to_mean.keys()) == frozenset(genes)
+        assert frozenset(gene_to_var.keys()) == frozenset(genes)
+
+    # Create GxN matrices where G is number of genes
+    # in the set and N is number of spots
+    spotwise_means = np.array([
+        np.full(
+            adata.shape[0],
+            gene_to_mean[gene]
+        )
+        for gene in genes
+    ])
+    spotwise_vars = np.array([
+        np.full(
+            adata.shape[0],
+            gene_to_var[gene],
+        )
+        for gene in genes
+    ])
+
+    coords = np.array(adata.obs[[
+        row_key,
+        col_key
+    ]])
+
+    corrs, covs, sample = simulate_expression_guassian_cov_mult_genes(
+        spotwise_means,
+        spotwise_vars,
+        coords,
+        sigma=sigma,
+        cov_strength=cov_strength,
+        poisson=poisson,
+        size_factors=size_factors
+    )
+    adata_sim = AnnData(
+        X=sample.T,
+        obs=adata.obs
+    )
+    return corrs, covs, adata_sim
+
 
 
 def simulate_expression_guassian_cov(
@@ -460,8 +535,6 @@ def simulate_expression_guassian_cov_mult_genes(
     x_vars_g1: the spot-wise variances for Gene 1
     x_vars_g2: the spot-wise variances for Gene 2
     """
-    warnings.filterwarnings('error')
-
     # Number of genes
     G = len(x_means)
 
@@ -469,11 +542,6 @@ def simulate_expression_guassian_cov_mult_genes(
     # using a Gaussian kernel
     dist_matrix = euclidean_distances(coords)
     K= np.exp(-1 * np.power(dist_matrix,2) / sigma**2)
-
-    #noise = 0.1
-
-    #B = np.random.rand(3, 3)*2-1 * 0.001
-    #np.fill_diagonal(B, np.ones(len(B)))
 
     # B matrix
     B = np.identity(G)
@@ -500,12 +568,11 @@ def simulate_expression_guassian_cov_mult_genes(
         #print(is_pos_def(cov))
 
         lamb_s = np.random.multivariate_normal(mean, cov)
-        #if poisson:
-        #    #poiss_mean = np.exp(lamb_s) + np.log(size_factors[s_i])
-        #    poiss_mean = np.exp(lamb_s) * size_factors[s_i]
-        #    x_s = np.random.poisson(poiss_mean)
-        #else:
-        x_s = lamb_s
+        if poisson:
+            poiss_mean = np.exp(lamb_s) * size_factors[si]
+            x_s = np.random.poisson(poiss_mean)
+        else:
+            x_s = lamb_s
         samples.append(x_s)
     samples = np.array(samples).T        
 
