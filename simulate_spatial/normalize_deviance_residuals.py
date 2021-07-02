@@ -25,15 +25,13 @@ def normalize(X, umi_counts=None):
     # Compute the matrix M where element M_{i,j} = n_i\pi_j
     M = np.outer(umi_counts, pi)
 
-    # Compute residual deviances
-
     square = np.nan_to_num(2*X*np.log(X/M), copy=True, nan=0.0) \
         + 2*(N-X)*np.log((N-X)/(N-M))
 
     for x in square.flatten():
         # If this number is negative, make sure it's just underflow
         if x < 0:
-            assert abs(x) < 0.01 # TODO is this right?
+            assert abs(x) < 0.01, f"Term value {x} is negative"
 
     R = np.nan_to_num(np.sign(X - M) * np.sqrt(square), copy=True, nan=0.0)
 
