@@ -4,7 +4,7 @@ This package simulates spatial transcriptomics data with spatially varying corre
 
 Here is a schematic overview of the simulation framework:
 
-![alt text](https://raw.githubusercontent.com/mbernste/SpatialCorr-sim/main/imgs/SpatialCorr_sim_figure.png)
+![alt text](https://raw.githubusercontent.com/mbernste/SpatialCorr-sim/master/imgs/SpatialCorr_sim_figure.png)
 
 ## Installation
 
