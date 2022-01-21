@@ -1,5 +1,7 @@
 # SpatialCorr-Sim: Simulate spatial transcriptomics data 
 
+![PyPI Version](https://img.shields.io/pypi/v/spatialcorr-sim)
+
 This package simulates spatial transcriptomics data with spatially varying correlation structure. To do so, it uses a Poisson-lognormal model with parameters inferred from an input dataset. 
 
 Here is a schematic overview of the simulation framework:
