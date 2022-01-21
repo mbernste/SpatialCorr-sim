@@ -1,5 +1,14 @@
-import stan
+"""
+Perform inference of latent mean and variance using a Bayesian inference on a
+hierarchical Poisson-lognormal model.
+
+Authors: Matthew Bernstein <mbernstein@morgridge.org>
+"""
+
+#import stan
 import numpy as np
+import os
+import stan
 
 # The Poisson-lognormal model used to generate spatial UMI counts
 POISS_LOGNORMAL = """
