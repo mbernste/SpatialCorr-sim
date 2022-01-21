@@ -20,7 +20,7 @@ with open("README.rst", "r", encoding="utf-8") as fh:
     readme = fh.read()
 
 setup(
-    name="spatialcorr_sim",
+    name="spatialcorr-sim",
     version="0.0.1",
     description="SpatialCorr",
     author="Matthew N. Bernstein",
@@ -33,7 +33,7 @@ setup(
     long_description=readme,
     include_package_data=True,
     zip_safe=True,
-    url="https://github.com/mbernste/spatialcorr_sim",
+    url="https://github.com/mbernste/spatialcorr-sim",
     entry_points={},
     keywords=[
         "spatial-transcriptomics",
