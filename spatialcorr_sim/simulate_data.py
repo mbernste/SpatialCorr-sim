@@ -138,10 +138,13 @@ def simulate_gene_pair_within_region_varying_correlation(
         adata,
         gene_1,
         gene_2,
-        clust_to_fisher_corr_mean,
-        clust_to_bandwidth,
-        clust_to_cov_strength,
-        clust_key,
+        clust_to_fisher_corr_mean=None,
+        fisher_corr_mean=None,
+        clust_to_bandwidth=None,
+        bandwidth=None,
+        clust_to_cov_strength=None,
+        cov_strength=None,
+        clust_key='cluster',
         row_key='row',
         col_key='col',
         poisson=False,
@@ -166,19 +169,35 @@ def simulate_gene_pair_within_region_varying_correlation(
         The name of a gene on which to base the simulated expression
         values for the second gene. The simulated data's second gene will
         have the same mean and variance as this gene.
-    clust_to_fisher_corr_mean : dictionary
+    clust_to_fisher_corr_mean : dictionary, optional (default : None)
         Map each cluster to the mean Fisher correlation between the two genes
         within that cluster. The correlation within each cluster will vary, but
         the Fisher-transformed correlations will vary around this mean.
-    clust_to_bandwidth : dictionary
+    fisher_corr_mean : float, optional (default : None)
+        The mean Fisher correlation between the two genes within every cluster.
+        If `clust_to_fisher_corr_mean` is not provided, this value will be used for all 
+        clusters/regions. Otherwise, this argument will be over-ridden by the values in 
+        `clust_to_fisher_corr_mean`.
+    clust_to_bandwidth : dictionary, optional (default : None)
         Map each cluster/region to the bandwidth parameter used in the Gaussian kernel
         used to sample correlations within that cluster. Larger bandwidth parameters
         will produce coarser patterns of correlation.
-    clust_to_cov_strength : dictionary
-        Map each cluster/region to the size of the the strength of correlation.
-        Higher values lead to larger magnitudes for the correlation of
-        each gene.
-    clust_key : string
+    bandwidth : float, optional (deault : None)
+        The bandwidth parameter to use for all clusters. If `clust_to_bandwidth` is not
+        provided, this value will be used for all clusters/regions. Otherwise, this 
+        argument will be over-ridden by the values in `clust_to_bandwidth`.
+    clust_to_cov_strength : dictionary, optional (default : None)
+        Map each cluster/region to the size of the "correlation strength" (i.e., the
+        scalar that scales the covariance matrix used in the Guassian process to generate
+        a spatial pattern of correlation). Higher values lead to larger magnitudes for the 
+        correlation of each gene.
+    cov_strength : float, optional (default : None)
+        The size of the "correlation strength" (i.e., the scalar that scales the covariance 
+        matrix used in the Guassian process to generate a spatial pattern of correlation). 
+        Higher values lead to larger magnitudes for the correlation of each gene. If 
+        `clust_to_cov_strength` is not provided, this value will be used for all clusters/regions. 
+        Otherwise, this argument will be over-ridden by the values in `clust_to_cov_strength`.
+    clust_key : string, optional (default : 'cluster')
         The name of the column in `adata.obs` that stores the cluster/region
         ID of each spot.
     row_key : string (default : 'row')
@@ -220,7 +239,50 @@ def simulate_gene_pair_within_region_varying_correlation(
     """
     if poisson:
         adata = adata.copy()
-   
+ 
+    # Determine Gaussian process parameters from arguments
+    if clust_to_fisher_corr_mean is None:
+        if fisher_corr_mean is None:
+            print("Warning. Mean Fisher correlations were not provided. Defaulting to zero.")
+            clust_to_fisher_corr_mean = {
+                ct: 0
+                for ct in set(adata.obs[clust_key])
+            }
+        else:
+            clust_to_fisher_corr_mean = {
+                ct: fisher_corr_mean
+                for ct in set(adata.obs[clust_key])
+            }
+    if clust_to_bandwidth is None:
+        if bandwidth is None:
+            print("Warning. The kernel bandwidth parameters were not provided. Defaulting to 5.")
+            clust_to_bandwidth = {
+                ct: 5
+                for ct in set(adata.obs[clust_key])
+            }
+        else:
+            clust_to_bandwidth = {
+                ct: bandwidth
+                for ct in set(adata.obs[clust_key])
+            }
+    if clust_to_cov_strength is None:
+        if cov_strength is None:
+            print("Warning. The covariance-strength parameters were not provided. Defaulting to 0.25.")
+            clust_to_cov_strength = {
+                ct: 0.25
+                for ct in set(adata.obs[clust_key])
+            }
+        else:
+            clust_to_cov_strength = {
+                ct: cov_strength
+                for ct in set(adata.obs[clust_key])
+            }
+
+    # Map clusters to indices
+    clust_to_inds = defaultdict(lambda: [])
+    for ind, ct in enumerate(adata.obs[clust_key]):
+        clust_to_inds[ct].append(ind)
+
     # If the latent means and variances of each gene within each region are
     # not provided, we must infer them using the hierarchical model.
     all_genes = set([gene_1, gene_2])
@@ -378,6 +440,11 @@ def simulate_gene_pair_region_specific(
     if poisson:
         adata = adata.copy()
 
+    # Map clusters to indices
+    clust_to_inds = defaultdict(lambda: [])
+    for ind, ct in enumerate(adata.obs[clust_key]):
+        clust_to_inds[ct].append(ind)
+
     # If latent mean and variances are not provided, they will be estimated
     # from the provided gene expression data
     all_genes = set([gene_1, gene_2])
@@ -457,7 +524,9 @@ def simulate_gene_set_within_region_varying_correlation(
         row_key='array_row',
         col_key='array_col',
         clust_to_bandwidth=None,
+        bandwidth=None,
         clust_to_cov_strength=None,
+        cov_strength=None,
         clust_key='cluster',
         poisson=False,
         size_factors=None,
@@ -477,14 +546,25 @@ def simulate_gene_set_within_region_varying_correlation(
         A G-length list of gene names for  which to base the simulated expression
         values. Within each region, the simulated datas' genes will have similar 
         means and variances as these genes.
-    clust_to_bandwidth : dictionary
+    clust_to_bandwidth : dictionary, optional (default : None)
         Map each cluster/region to the bandwidth parameter used in the Gaussian kernel
         used to sample correlations within that cluster. Larger bandwidth parameters
         will produce coarser patterns of correlation.
-    clust_to_cov_strength : dictionary
-        Map each cluster/region to the size of the the strength of correlation.
-        Higher values lead to larger magnitudes for the correlation of
-        each gene.
+    bandwidth : float, optional (deault : None)
+        The bandwidth parameter to use for all clusters. If `clust_to_bandwidth` is not
+        provided, this value will be used for all clusters/regions. Otherwise, this 
+        argument will be over-ridden by the values in `clust_to_bandwidth`.
+    clust_to_cov_strength : dictionary, optional (default : None)
+        Map each cluster/region to the size of the "correlation strength" (i.e., the
+        scalar that scales the covariance matrix used in the Guassian process to generate
+        a spatial pattern of correlation). Higher values lead to larger magnitudes for the 
+        correlation of each gene.
+    cov_strength : float, optional (default : None)
+        The size of the "correlation strength" (i.e., the scalar that scales the covariance 
+        matrix used in the Guassian process to generate a spatial pattern of correlation). 
+        Higher values lead to larger magnitudes for the correlation of each gene. If 
+        `clust_to_cov_strength` is not provided, this value will be used for all clusters/regions. 
+        Otherwise, this argument will be over-ridden by the values in `clust_to_cov_strength`.
     clust_key : string
         The name of the column in `adata.obs` that stores the cluster/region
         ID of each spot.
@@ -529,6 +609,32 @@ def simulate_gene_set_within_region_varying_correlation(
     """
     if poisson:
         adata = adata.copy()
+
+    # Determine Gaussian process parameters from arguments
+    if clust_to_bandwidth is None:
+        if bandwidth is None:
+            print("Warning. The kernel bandwidth parameters were not provided. Defaulting to 5.")
+            clust_to_bandwidth = {
+                ct: 5
+                for ct in set(adata.obs[clust_key])
+            }
+        else:
+            clust_to_bandwidth = {
+                ct: bandwidth
+                for ct in set(adata.obs[clust_key])
+            }
+    if clust_to_cov_strength is None:
+        if cov_strength is None:
+            print("Warning. The covariance-strength parameters were not provided. Defaulting to 0.25.")
+            clust_to_cov_strength = {
+                ct: 0.25
+                for ct in set(adata.obs[clust_key])
+            }
+        else:
+            clust_to_cov_strength = {
+                ct: cov_strength
+                for ct in set(adata.obs[clust_key])
+            }
 
     # Map clusters to indices
     clust_to_inds = defaultdict(lambda: [])
@@ -605,9 +711,10 @@ def simulate_gene_set_region_specific(
         adata,
         all_genes,
         spot_covs,
+        clust_to_corr_mat,
+        clust_key='cluster',
         row_key='row',
         col_key='col',
-        clust_key='cluster',
         poisson=False,
         size_factors=None,
         gene_to_clust_to_mean=None,
@@ -626,10 +733,6 @@ def simulate_gene_set_region_specific(
         A G-length list of gene names for  which to base the simulated expression
         values. Within each region, the simulated datas' genes will have similar 
         means and variances as these genes.
-    spot_covs : ndarray
-        A NxGxG sized array, where N is the number of spots and G is the number of
-        genes, storing the pre-specified covariance matrix at each spot that is used
-        in the model to generate expression values fo the G genes at each spot.
     clust_key : string
         The name of the column in `adata.obs` that stores the cluster/region
         ID of each spot.
@@ -1087,7 +1190,7 @@ def generate_gene_pair_expression_within_region_varying_corr(
             dist_matrix = euclidean_distances(coords[indices])
 
             bandwidth = clust_to_bandwidth[clust]
-            cov_strength = clust_to_cov_strength[clust] 
+            cov_strength = clust_to_cov_strength[clust]
             kernel_matrix_clust = np.exp(-1 * np.power(dist_matrix,2) / bandwidth**2)
             
             z_cov_clust = kernel_matrix_clust * cov_strength
@@ -1140,8 +1243,8 @@ def generate_gene_pair_expression_within_region_varying_corr(
 
 
 def generate_gene_pair_expression_prespecified_corr(
-        x_means_g1,
-        x_means_g2,
+        spot_means_g1,
+        spot_means_g2,
         spot_vars_g1,
         spot_vars_g2,
         spot_corrs,
