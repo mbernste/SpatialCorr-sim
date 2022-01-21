@@ -8,7 +8,11 @@ Here is a schematic overview of the simulation framework:
 
 ## Installation
 
+To install SpatialCorr-sim using Pip, run the following command:
+
+`pip install spatialcorr-sim`
+
 ## Usage
 
-For a tutorial on how to simulate a spatial transcriptomics dataset, please see the Jupyter notebook, `simulate_spatial_data.ipynb`.
+For a tutorial on how to simulate a spatial transcriptomics dataset, please see the Jupyter notebook, `tutorial/SpatialCorr_sim_tutorial.ipynb`.
 
