@@ -16,5 +16,11 @@ To install SpatialCorr-sim using Pip, run the following command:
 
 ## Usage
 
+### Documentation
+
+The API manual can be found at [https://spatialcorr-sim.readthedocs.io/en/latest/](https://spatialcorr-sim.readthedocs.io/en/latest/).
+
+### Tutorial
+
 For a tutorial on how to simulate a spatial transcriptomics dataset, please see the Jupyter notebook, `tutorial/SpatialCorr_sim_tutorial.ipynb`.
 
